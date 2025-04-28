@@ -1,0 +1,215 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+    <meta charset="UTF-8">
+    <title>園遊會點數系統</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <script src="https://unpkg.com/html5-qrcode" type="text/javascript"></script>
+    <script src="https://cdn.jsdelivr.net/npm/qrcode/build/qrcode.min.js"></script>
+    <style>
+        body { font-family: 'Noto Sans TC', Arial, sans-serif; text-align: center; padding: 20px; background-color: #f7f7f7; }
+        h1, h2 { color: #333; }
+        .screen { display: none; }
+        .btn {
+            padding: 10px 20px;
+            margin: 10px;
+            font-size: 18px;
+            background-color: #4CAF50;
+            color: white;
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+        }
+        .btn:hover {
+            background-color: #45a049;
+        }
+        input {
+            margin: 5px;
+            padding: 10px;
+            width: 80%;
+            font-size: 16px;
+        }
+        #reader { width: 300px; margin: auto; }
+        #log {
+            margin-top: 20px;
+            text-align: left;
+            max-width: 400px;
+            margin-left: auto;
+            margin-right: auto;
+            background: white;
+            padding: 10px;
+            border-radius: 8px;
+            box-shadow: 0 0 5px rgba(0,0,0,0.2);
+        }
+    </style>
+</head>
+<body>
+
+<h1>園遊會點數系統</h1>
+
+<!-- 主畫面 -->
+<div id="mainScreen" class="screen" style="display:block;">
+    <button class="btn" onclick="showScreen('scanScreen')">掃描攤位扣點數</button>
+    <button class="btn" onclick="showScreen('generateScreen')">產生攤位QR Code</button>
+</div>
+
+<!-- 扣點數畫面 -->
+<div id="scanScreen" class="screen">
+    <h2>剩餘點數：<span id="points">100</span></h2>
+    <div id="reader" style="margin-top:20px;"></div>
+    <button class="btn" onclick="startScanner()">開始掃描</button>
+    <button class="btn" onclick="stopScanner()">停止掃描</button>
+    <button class="btn" onclick="resetPoints()">點數重置</button>
+    <br><br>
+    <button class="btn" onclick="showScreen('mainScreen')">回到主選單</button>
+
+    <h2>扣點記錄</h2>
+    <div id="log"></div>
+</div>
+
+<!-- 產生QR Code畫面 -->
+<div id="generateScreen" class="screen">
+    <h2>產生攤位QR Code</h2>
+    <input type="text" id="stallId" placeholder="輸入攤位代號 (如 STALL001)">
+    <br>
+    <input type="number" id="cost" placeholder="輸入需要扣除的點數 (如 30)">
+    <br>
+    <button class="btn" onclick="generateQRCode()">產生 QR Code</button>
+    <div id="qrcode" style="margin-top:20px;"></div>
+    <br>
+    <button class="btn" onclick="showScreen('mainScreen')">回到主選單</button>
+</div>
+
+<script>
+    // 畫面切換
+    function showScreen(screenId) {
+        document.querySelectorAll('.screen').forEach(div => div.style.display = 'none');
+        document.getElementById(screenId).style.display = 'block';
+        if (screenId === 'scanScreen') {
+            updateLog();
+        }
+    }
+
+    // 點數管理
+    let points = 100;
+    let log = [];
+
+    if (localStorage.getItem('points')) {
+        points = parseInt(localStorage.getItem('points'));
+    } else {
+        localStorage.setItem('points', points);
+    }
+
+    if (localStorage.getItem('log')) {
+        log = JSON.parse(localStorage.getItem('log'));
+    }
+
+    document.getElementById('points').innerText = points;
+
+    // QR掃描
+    let html5QrcodeScanner;
+    function startScanner() {
+        html5QrcodeScanner = new Html5Qrcode("reader");
+        html5QrcodeScanner.start(
+            { facingMode: "environment" },
+            {
+                fps: 10,
+                qrbox: 250
+            },
+            qrCodeMessage => {
+                processQRCode(qrCodeMessage);
+            },
+            errorMessage => {
+                console.log(errorMessage);
+            }
+        ).catch(err => {
+            console.log("無法啟動掃描器", err);
+        });
+    }
+
+    function stopScanner() {
+        if (html5QrcodeScanner) {
+            html5QrcodeScanner.stop().then(() => {
+                console.log("掃描器停止");
+            }).catch(err => {
+                console.log("停止失敗", err);
+            });
+        }
+    }
+
+    function processQRCode(message) {
+        console.log("掃到的內容：" + message);
+        const parts = message.split(':');
+        if (parts.length !== 2) {
+            alert('QR Code 格式錯誤！');
+            return;
+        }
+        const stallId = parts[0];
+        const cost = parseInt(parts[1]);
+        if (isNaN(cost)) {
+            alert('點數格式錯誤！');
+            return;
+        }
+
+        if (points >= cost) {
+            points -= cost;
+            localStorage.setItem('points', points);
+            document.getElementById('points').innerText = points;
+            alert(`成功從 ${stallId} 扣除 ${cost} 點！剩餘 ${points} 點`);
+            // 記錄扣點
+            log.push({ stall: stallId, cost: cost, time: new Date().toLocaleTimeString() });
+            localStorage.setItem('log', JSON.stringify(log));
+            updateLog();
+        } else {
+            alert('點數不足，無法扣除！');
+        }
+    }
+
+    function resetPoints() {
+        if (confirm("確定要重置點數到100點嗎？這會清除所有扣點記錄！")) {
+            points = 100;
+            log = [];
+            localStorage.setItem('points', points);
+            localStorage.setItem('log', JSON.stringify(log));
+            document.getElementById('points').innerText = points;
+            updateLog();
+            alert('點數與記錄已重置！');
+        }
+    }
+
+    function updateLog() {
+        const logDiv = document.getElementById('log');
+        logDiv.innerHTML = '';
+        if (log.length === 0) {
+            logDiv.innerHTML = '<p>目前沒有扣點紀錄</p>';
+            return;
+        }
+        log.forEach(entry => {
+            const p = document.createElement('p');
+            p.innerText = `${entry.time} - ${entry.stall} 扣 ${entry.cost} 點`;
+            logDiv.appendChild(p);
+        });
+    }
+
+    // QR產生器
+    function generateQRCode() {
+        const stallId = document.getElementById('stallId').value.trim();
+        const cost = document.getElementById('cost').value.trim();
+        const qrCodeDiv = document.getElementById('qrcode');
+        qrCodeDiv.innerHTML = ''; // 清空舊的
+
+        if (!stallId || !cost) {
+            alert('請填寫完整資訊！');
+            return;
+        }
+
+        const qrText = `${stallId}:${cost}`;
+        QRCode.toCanvas(document.createElement('canvas'), qrText, { width: 250 }, function (error, canvas) {
+            if (error) console.error(error);
+            qrCodeDiv.appendChild(canvas);
+        });
+    }
+</script>
+
+</body>
+</html>
